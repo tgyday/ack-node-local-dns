@@ -1,0 +1,21 @@
+nodelocaldns:
+  image:
+    repository: registry.cn-hangzhou.aliyuncs.com/acs/k8s-dns-node-cache
+    tag: v1.15.13-6-7e6778ac
+  init_image:
+    repository: registry.cn-hangzhou.aliyuncs.com/acs/busybox
+    tag: v1.29.2
+
+controller:
+  enabled: true
+  replicas: 2
+  image: registry.cn-hangzhou.aliyuncs.com/acs/node-local-dns-admission-controller
+  imageTag: v1.0.2-8b46b2f-aliyun
+
+env:
+  # must set
+  upstream_ip: ""
+
+  # change if needed
+  cluster_domain: "cluster.local"
+  enable_log: false

@@ -1,0 +1,110 @@
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: node-local-upstream
+  namespace: {{ .Release.Namespace }}
+  labels:
+    k8s-app: kube-dns
+    kubernetes.io/cluster-service: "true"
+    addonmanager.kubernetes.io/mode: Reconcile
+    kubernetes.io/name: "NodeLocalUpstream"
+spec:
+  clusterIP: {{ .Values.env.upstream_ip }}
+  selector:
+    k8s-app: kube-dns
+  ports:
+  - name: dns
+    port: 53
+    protocol: UDP
+  - name: dns-tcp
+    port: 53  
+---
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: node-local-dns
+  namespace: {{ .Release.Namespace }}
+  labels:
+    k8s-app: node-local-dns
+    kubernetes.io/cluster-service: "true"
+    addonmanager.kubernetes.io/mode: Reconcile
+spec:
+  updateStrategy:
+    rollingUpdate:
+      maxUnavailable: 10%
+  selector:
+    matchLabels:
+      k8s-app: node-local-dns
+  template:
+    metadata:
+       labels:
+          k8s-app: node-local-dns
+    spec:
+      priorityClassName: system-node-critical
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - matchExpressions:
+              - key: type
+                operator: NotIn
+                values:
+                - virtual-kubelet
+      serviceAccountName: node-local-dns
+      hostNetwork: true
+      dnsPolicy: Default  # Don't use cluster DNS.
+      tolerations:
+      - key: "CriticalAddonsOnly"
+        operator: "Exists"
+      nodeSelector:
+        beta.kubernetes.io/os: linux
+      initContainers:
+        - name: init-sysctl
+          image: {{ .Values.nodelocaldns.init_image.repository }}:{{ .Values.nodelocaldns.init_image.tag }}
+          command:
+            - /bin/sh
+            - -c
+            - |
+              mount -o remount rw /proc/sys
+              sysctl -w net.ipv4.icmp_ratemask=6160
+          securityContext:
+            capabilities:
+              drop:
+                - ALL
+              add:
+                - SYS_ADMIN
+      containers:
+      - name: node-cache
+        image: {{ .Values.nodelocaldns.image.repository }}:{{ .Values.nodelocaldns.image.tag }}
+        resources:
+          requests:
+            cpu: 25m
+            memory: 5Mi
+        args: [ "-localip", "169.254.20.10", "-conf", "/etc/coredns/Corefile", "-upstreamsvc", "node-local-upstream", "-setupiptables=true", "-skipteardown=true", "-forwardonexit=false"]
+        securityContext:
+          privileged: true
+        livenessProbe:
+          httpGet:
+            host: 169.254.20.10
+            path: /health
+            port: 8081
+          initialDelaySeconds: 60
+          timeoutSeconds: 5
+        volumeMounts:
+        - mountPath: /run/xtables.lock
+          name: xtables-lock
+          readOnly: false
+        - name: config-volume
+          mountPath: /etc/coredns
+      volumes:
+      - name: xtables-lock
+        hostPath:
+          path: /run/xtables.lock
+          type: FileOrCreate
+      - name: config-volume
+        configMap:
+          name: node-local-dns
+          items:
+            - key: Corefile
+              path: Corefile

@@ -1,0 +1,62 @@
+{{- if .Values.controller.enabled }}
+{{- $ca := genCA "admission-controller-ca" 3650 }}
+{{- $cn := printf "%s" .Release.Name }}
+{{- $altName1 := printf "%s-admission-controller.%s" .Release.Name .Release.Namespace }}
+{{- $altName2 := printf "%s-admission-controller.%s.svc" .Release.Name .Release.Namespace }}
+{{- $cert := genSignedCert $cn nil (list $altName1 $altName2) 3650 $ca }}
+apiVersion: admissionregistration.k8s.io/v1beta1
+kind: MutatingWebhookConfiguration
+metadata:
+  name: "{{ template "admissionname" . }}"
+  labels:
+    app: "{{ template "admissionname" . }}"
+webhooks:
+  - clientConfig:
+      caBundle: {{ b64enc $ca.Cert }}
+      service:
+        name: "{{ template "admissionname" . }}"
+        namespace: {{ .Release.Namespace }}
+        path: /inject
+    failurePolicy: Ignore
+    objectSelector:
+      matchExpressions:
+        - key: eci
+          operator: DoesNotExist
+        - key: alibabacloud.com/eci
+          operator: DoesNotExist
+        - key: node-local-dns-injection
+          operator: NotIn
+          values:
+            - "disabled"
+    namespaceSelector:
+      matchLabels:
+        node-local-dns-injection: enabled
+      matchExpressions:
+        - key: virtual-node-affinity-injection
+          operator: DoesNotExist
+        - key: eci
+          operator: DoesNotExist
+        - key: alibabacloud.com/eci
+          operator: DoesNotExist
+    name: {{ template "admissionname" . }}.k8s.io
+    rules:
+      - apiGroups:
+          - ""
+        apiVersions:
+          - v1
+        operations:
+          - CREATE
+        resources:
+          - pods
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: {{ template "admissionname" . }}-cert
+  labels:
+    app: "{{ template "admissionname" . }}"
+type: Opaque
+data:
+  tls.crt: {{ b64enc $cert.Cert }}
+  tls.key: {{ b64enc $cert.Key }}
+{{- end }}

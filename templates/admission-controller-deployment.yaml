@@ -1,0 +1,51 @@
+{{- if .Values.controller.enabled }}
+kind: Deployment
+apiVersion: apps/v1
+metadata:
+  name: "{{ template "admissionname" . }}"
+  labels:
+    app: "{{ template "admissionname" . }}"
+spec:
+  replicas: {{ .Values.controller.replicas }}
+  selector:
+    matchLabels:
+      app: "{{ template "admissionname" . }}"
+  template:
+    metadata:
+      labels:
+        app: "{{ template "admissionname" . }}"
+    spec:
+      serviceAccountName: "{{ template "admissionname" . }}"
+      containers:
+        - name: webhook
+          image: {{ .Values.controller.image }}:{{ .Values.controller.imageTag }}
+          imagePullPolicy: Always
+          command: ["/node-local-dns-admission-controller"]
+          args:
+            - --include-kube-dns
+            - --ndots=3
+            - --attempts=2
+            - --timeout=1
+            - --nameserver
+            - "169.254.20.10"
+            - --cluster-domain
+            - "{{ .Values.env.cluster_domain }}"
+            - --logtostderr
+            - -v=4
+            - 2>&1
+          livenessProbe:
+            httpGet:
+              scheme: HTTPS
+              path: /healthz
+              port: 8443
+          ports:
+            - containerPort: 8443
+          volumeMounts:
+            - name: certs
+              mountPath: /var/run/node-local-dns-admission-controller
+              readOnly: true
+      volumes:
+        - name: certs
+          secret:
+            secretName: {{ template "admissionname" . }}-cert
+{{- end }}

@@ -1,0 +1,15 @@
+{{- if .Values.controller.enabled }}
+kind: Service
+apiVersion: v1
+metadata:
+  name: "{{ template "admissionname" . }}"
+  labels:
+    app: "{{ template "admissionname" . }}"
+spec:
+  type: NodePort
+  selector:
+    app: "{{ template "admissionname" . }}"
+  ports:
+    - port: 443
+      targetPort: 8443
+{{- end }}
